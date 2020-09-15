@@ -29,10 +29,15 @@ class DenseNet(nn.Module):
     '''
     def __init__(self, input_size, hidden_size, output_size, dropout):
         super(DenseNet, self).__init__()
+        if isinstance(dropout, list):
+            self.dropout = dropout
+        else:
+            self.dropout = [dropout] * len(hidden_size)
+            
         self.layers = nn.ModuleList()
         layer_size = [input_size] + hidden_size + [output_size]
         for i in range(len(layer_size)-2):
-            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], dropout[i]))
+            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i]))
         self.layers.append(nn.Linear(layer_size[-2], layer_size[-1]))
     
     def forward(self, x):
@@ -102,9 +107,9 @@ class Model(object):
                     if i%(30*batch_size)==0:
                         print(f"Epoch [{e+1}, {i}] : loss {loss}")       
     
-    def predict(self, X):
+    def predict(self, X, thresh = 0.5):
         prob = self.predict_prob(X)
-        res = (prob>=0.5)*1
+        res = (prob>=thresh)*1
         return res
     
     def predict_prob(self, X):
