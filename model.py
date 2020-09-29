@@ -49,17 +49,23 @@ class DenseNet(nn.Module):
         return F.sigmoid(x)
     
     def regular_loss(self, L1, L2):
-        l1, l2 = 0, 0
-        for layer in self.layers[:-1]:
-            w = layer.linear.weight.data
-            l1 += torch.sum(w.abs())
-            l2 += torch.sum(torch.mul(w,w))
+        all_params = torch.tensor([])
+        for layer in self.layers[:-2]:
+            layer_params = torch.cat([x.view(-1) for x in layer.linear.parameters()])
+            all_params = torch.cat([all_params, layer_params])
             
-        w = self.layers[-1].weight.data
-        l1 += torch.sum(w.abs())
-        l2 += torch.sum(torch.mul(w,w))
-        return L1*l1 + L2*l2
-       
+        layer_params = torch.cat([x.view(-1) for x in self.layers[-1].parameters()])
+        all_params = torch.cat([all_params, layer_params])
+        return L1*torch.norm(all_params, 1) + L2*torch.norm(all_params, 2)
+    
+#         for layer in self.layers[:-2]:
+#             w = layer.linear.weight.data
+#             l1 += torch.sum(w.abs())
+#             l2 += torch.sum(torch.mul(w,w))
+#         w = self.layers[-1].weight.data
+#         l1 += torch.sum(w.abs())
+#         l2 += torch.sum(torch.mul(w,w))
+        
         
 class Model(object):
     '''
@@ -70,15 +76,15 @@ class Model(object):
         self.net = net
         
 
-    def fit(self, X, y, epoch, lr, batch_size, L2, verbose=True):
+    def fit(self, X, y, epoch, lr, batch_size, L1, L2, pos_weight=1, verbose=True):
         
         n_samples = len(X)
         if type(X)!=np.ndarray:
             X = X.values
             y = y.values
             
-        optimizer = optim.Adam(self.net.parameters(), lr = lr, weight_decay=L2)    
-        criterian = nn.BCELoss()
+        optimizer = optim.Adam(self.net.parameters(), lr = lr)    
+        criterian = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight))
         
         for e in range(epoch):
             for i in range(0, n_samples, batch_size):
@@ -93,7 +99,7 @@ class Model(object):
                 y_prob = y_prob.view(-1,1)
                 y_target = y_target.view(-1,1)
             
-                loss = criterian(y_prob, y_target)
+                loss = criterian(y_prob, y_target) + self.net.regular_loss(L1, L2)
                 
                 loss.backward()
                 
