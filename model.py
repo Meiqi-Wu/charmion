@@ -13,17 +13,18 @@ class DenseBlock(nn.Module):
     '''
     A block of a fully-connected layer with relu activation and dropout.
     '''
-    def __init__(self, input_size, output_size, dropout_ratio):
+    def __init__(self, input_size, output_size, dropout_ratio, activate):
         super(DenseBlock, self).__init__()
         self.batchnorm = nn.BatchNorm1d(input_size)
         self.linear = nn.Linear(input_size, output_size)
         self.dropout = nn.Dropout(dropout_ratio)
+        self.activate = activate
         
     def forward(self, x):
         x = self.batchnorm(x)
         x = self.linear(x)
         x = self.dropout(x)
-        return F.relu(x)
+        return self.activate(x)
     
 class DenseNet(nn.Module):
     '''
@@ -39,23 +40,21 @@ class DenseNet(nn.Module):
         self.layers = nn.ModuleList()
         layer_size = [input_size] + hidden_size + [output_size]
         for i in range(len(layer_size)-2):
-            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i]))
-        self.layers.append(nn.BatchNorm1d(layer_size[-2]))
-        self.layers.append(nn.Linear(layer_size[-2], layer_size[-1]))
+            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i], F.relu))
+        self.layers.append(DenseBlock(layer_size[-2], layer_size[-1], 0, F.sigmoid))
+
     
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
-        return F.sigmoid(x)
+        return x
     
     def regular_loss(self, L1, L2):
         all_params = torch.tensor([])
-        for layer in self.layers[:-2]:
-            layer_params = torch.cat([x.view(-1) for x in layer.linear.parameters()])
+        for layer in self.layers:
+            layer_params = list(layer.linear.parameters())[0].view(-1)
             all_params = torch.cat([all_params, layer_params])
-            
-        layer_params = torch.cat([x.view(-1) for x in self.layers[-1].parameters()])
-        all_params = torch.cat([all_params, layer_params])
+
         return L1*torch.norm(all_params, 1) + L2*torch.norm(all_params, 2)
     
 #         for layer in self.layers[:-2]:
