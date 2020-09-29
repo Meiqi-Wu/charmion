@@ -15,10 +15,12 @@ class DenseBlock(nn.Module):
     '''
     def __init__(self, input_size, output_size, dropout_ratio):
         super(DenseBlock, self).__init__()
+        self.batchnorm = nn.BatchNorm1d(input_size)
         self.linear = nn.Linear(input_size, output_size)
         self.dropout = nn.Dropout(dropout_ratio)
         
     def forward(self, x):
+        x = self.batchnorm(x)
         x = self.linear(x)
         x = self.dropout(x)
         return F.relu(x)
@@ -38,6 +40,7 @@ class DenseNet(nn.Module):
         layer_size = [input_size] + hidden_size + [output_size]
         for i in range(len(layer_size)-2):
             self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i]))
+        self.layers.append(nn.BatchNorm1d(layer_size[-2]))
         self.layers.append(nn.Linear(layer_size[-2], layer_size[-1]))
     
     def forward(self, x):
@@ -67,7 +70,7 @@ class Model(object):
         self.net = net
         
 
-    def fit(self, X, y, epoch, lr, batch_size, L2, pos_weight, verbose=True):
+    def fit(self, X, y, epoch, lr, batch_size, L2, verbose=True):
         
         n_samples = len(X)
         if type(X)!=np.ndarray:
@@ -75,7 +78,7 @@ class Model(object):
             y = y.values
             
         optimizer = optim.Adam(self.net.parameters(), lr = lr, weight_decay=L2)    
-        criterian = nn.BCEWithLogitsLoss(pos_weight = torch.tensor(pos_weight))
+        criterian = nn.BCELoss()
         
         for e in range(epoch):
             for i in range(0, n_samples, batch_size):
@@ -112,7 +115,7 @@ class Model(object):
         res = (prob>=thresh)*1
         return res
     
-    def predict_prob(self, X):
+    def predict_proba(self, X):
         if type(X)==pd.core.frame.DataFrame:
             X = torch.from_numpy(X.values).float()
         elif type(X)== np.ndarray:
