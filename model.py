@@ -8,9 +8,6 @@ from callbacks import EarlyStopping
 from utils import make_dataloader
 from sklearn.model_selection import train_test_split
 
-SEED = 123
-np.random.seed(SEED)
-torch.manual_seed(SEED)
 
 class DenseBlock(nn.Module):
     '''
