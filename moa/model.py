@@ -38,14 +38,20 @@ class DenseNet(nn.Module):
         if isinstance(dropout, list):
             self.dropout = dropout
         else:
-            self.dropout = [dropout] * len(hidden_size)
+            self.dropout = [dropout] * (len(hidden_size)+1)
             
         self.layers = nn.ModuleList()
         layer_size = [input_size] + hidden_size + [output_size]
+        
+        self.layers.append(nn.Dropout(self.dropout[0]))
         for i in range(len(layer_size)-2):
-            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i], F.relu))
+            self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i+1], F.relu))
         self.layers.append(DenseBlock(layer_size[-2], layer_size[-1], 0, None))
-
+        
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')
+        else:
+            self.device = torch.device('cpu')
     
     def forward(self, x):
         for layer in self.layers:
@@ -53,8 +59,8 @@ class DenseNet(nn.Module):
         return x
     
     def regular_loss(self, L1, L2):
-        all_params = torch.tensor([])
-        for layer in self.layers:
+        all_params = torch.tensor([]).to(self.device)
+        for layer in self.layers[1:]:
             layer_params = list(layer.linear.parameters())[0].view(-1)
             all_params = torch.cat([all_params, layer_params])
 
@@ -77,7 +83,7 @@ class Model(object):
        
 
     def fit(self, X, y, epoch, lr, batch_size, L1, L2, patience=5, pos_weight=1, verbose=True):
-        if type(X)!=np.ndarray:
+        if type(X)!=np.ndarray or type(y)!=np.ndarray:
             X = X.values
             y = y.values
         # split train and validation set
@@ -87,8 +93,9 @@ class Model(object):
         train_loader = make_dataloader(X_train, y_train, batch_size)
         
         optimizer = optim.Adam(self.net.parameters(), lr = lr)    
+        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=max(patience-3, 1), verbose=verbose)
         criterian = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight))
-        early_stopping = EarlyStopping(patience=patience, verbose=True)
+        early_stopping = EarlyStopping(patience=patience, verbose=verbose)
         
         n_features = X_train.shape[1]
         for e in range(epoch):
@@ -117,6 +124,8 @@ class Model(object):
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
+            
+            lr_scheduler.step(valid_loss)
         self.net.load_state_dict(torch.load('checkpoint.pt'))
     
     def predict(self, X, thresh = 0.5):
@@ -131,5 +140,5 @@ class Model(object):
             X = torch.from_numpy(X).float().to(self.device)
         
         output = F.sigmoid(self.net(X))
-        return output.detach().numpy().astype('float64')
+        return output.cpu().detach().numpy().astype('float64')
 
