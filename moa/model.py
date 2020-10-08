@@ -93,7 +93,7 @@ class Model(object):
         train_loader = make_dataloader(X_train, y_train, batch_size)
         
         optimizer = optim.Adam(self.net.parameters(), lr = lr)    
-        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=max(patience-3, 1), verbose=verbose)
+        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=max(patience-3, 1), factor=0.5, verbose=verbose)
         criterian = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight))
         early_stopping = EarlyStopping(patience=patience, verbose=verbose)
         
@@ -104,6 +104,8 @@ class Model(object):
                 counter += 1
                 X_batch = data[:,:n_features].float().to(self.device)
                 y_target = data[:,n_features:].float().to(self.device)
+                if X_batch.shape[0] <= 1:
+                    continue
 
                 optimizer.zero_grad()
                 
