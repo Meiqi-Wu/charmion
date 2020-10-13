@@ -13,21 +13,26 @@ class DenseBlock(nn.Module):
     '''
     A block of a fully-connected layer with relu activation and dropout.
     '''
-    def __init__(self, input_size, output_size, dropout_ratio, activate):
+    def __init__(self, input_size, output_size, dropout_ratio, activate, batch=True):
         super(DenseBlock, self).__init__()
-        self.batchnorm = nn.BatchNorm1d(input_size)
         self.linear = nn.Linear(input_size, output_size)
-        self.dropout = nn.Dropout(dropout_ratio)
         self.activate = activate
+        if batch:
+            self.batchnorm = nn.BatchNorm1d(output_size)
+        else:
+            self.batchnorm = None
+        
+        self.dropout = nn.Dropout(dropout_ratio)
+        
         
     def forward(self, x):
-        x = self.batchnorm(x)
         x = self.linear(x)
-        x = self.dropout(x)
+        if self.batchnorm:
+            x = self.batchnorm(x)
         if self.activate:
-            return self.activate(x)
-        else:
-            return x
+            x = self.activate(x)
+        x = self.dropout(x)
+        return x
     
 class DenseNet(nn.Module):
     '''
@@ -43,10 +48,11 @@ class DenseNet(nn.Module):
         self.layers = nn.ModuleList()
         layer_size = [input_size] + hidden_size + [output_size]
         
+        self.layers.append(nn.BatchNorm1d(input_size))
         self.layers.append(nn.Dropout(self.dropout[0]))
         for i in range(len(layer_size)-2):
             self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i+1], F.relu))
-        self.layers.append(DenseBlock(layer_size[-2], layer_size[-1], 0, None))
+        self.layers.append(DenseBlock(layer_size[-2], layer_size[-1], 0, None, False))
         
         if torch.cuda.is_available():
             self.device = torch.device('cuda:0')
@@ -60,7 +66,7 @@ class DenseNet(nn.Module):
     
     def regular_loss(self, L1, L2):
         all_params = torch.tensor([]).to(self.device)
-        for layer in self.layers[1:]:
+        for layer in self.layers[2:]:
             layer_params = list(layer.linear.parameters())[0].view(-1)
             all_params = torch.cat([all_params, layer_params])
 
