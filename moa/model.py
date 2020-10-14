@@ -88,12 +88,12 @@ class Model(object):
         self.net.to(self.device)
        
 
-    def fit(self, X, y, epoch, lr, batch_size, L1, L2, patience=5, pos_weight=1, verbose=True):
+    def fit(self, X, y, epoch, lr, batch_size, L1, L2, patience=5, pos_weight=1, verbose=True, random_state=1):
         if type(X)!=np.ndarray or type(y)!=np.ndarray:
             X = X.values
             y = y.values
         # split train and validation set
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.15)
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.15, random_state=random_state)
         X_val = torch.from_numpy(X_val).float().to(self.device)
         y_val = torch.from_numpy(y_val).float().to(self.device)
         train_loader = make_dataloader(X_train, y_train, batch_size)
