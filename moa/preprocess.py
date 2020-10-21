@@ -28,12 +28,20 @@ def cp_filter(train, train_targets, test):
     return train_, train_targets_, test_
     
 # Function to scale our data
-def scaling(train, test):
+def robust_scaling(train, test):
     scaler = RobustScaler()
     scaler.fit(pd.concat([train, test], axis = 0))
     train_ = pd.DataFrame(scaler.transform(train), index=train.index, columns=train.columns)
     test_ = pd.DataFrame(scaler.transform(test), index=test.index, columns=test.columns)
     return train_, test_
+
+def standard_scaling(train, test):
+    scaler = StandardScaler()
+    scaler.fit(pd.concat([train, test], axis = 0))
+    train_ = pd.DataFrame(scaler.transform(train), index=train.index, columns=train.columns)
+    test_ = pd.DataFrame(scaler.transform(test), index=test.index, columns=test.columns)
+    return train_, test_
+
 
 # Rank Gauss : transform each column to follow a normal distribution 
 def rankgauss(train, test):
