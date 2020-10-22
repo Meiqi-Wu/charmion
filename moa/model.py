@@ -6,7 +6,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 from moa.callbacks import EarlyStopping
 from moa.utils import make_dataloader
+from moa.metrics import SmoothCrossEntropyLoss
 from sklearn.model_selection import train_test_split
+
 
 
 class DenseBlock(nn.Module):
@@ -38,7 +40,7 @@ class DenseNet(nn.Module):
     '''
     A few fully-connected layers, with sigmoid activation at the output layer.
     '''
-    def __init__(self, input_size, hidden_size, output_size, dropout):
+    def __init__(self, input_size=1200, hidden_size=[2048, 2048], output_size=206, dropout=0.2):
         super(DenseNet, self).__init__()
         if isinstance(dropout, list):
             self.dropout = dropout
@@ -72,6 +74,7 @@ class DenseNet(nn.Module):
 
         return L1*torch.norm(all_params, 1) + L2*torch.norm(all_params, 2)
     
+    
         
         
 class Model(object):
@@ -88,53 +91,67 @@ class Model(object):
         self.net.to(self.device)
        
 
-    def fit(self, X, y, epoch, lr, batch_size, L1, L2, patience=5, pos_weight=1, verbose=True, random_state=1):
-        if type(X)!=np.ndarray or type(y)!=np.ndarray:
-            X = X.values
-            y = y.values
-        # split train and validation set
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.15, random_state=random_state)
+    def fit(self, X_train, y_train, X_val, y_val, epoch, lr, batch_size, L1=0, L2=0, weight_decay=1e-5, patience=10, smoothing=0.001, p_min=0.001, scheduler='ReduceLROnPlateau', verbose=True):
+        if type(X_train)!=np.ndarray :
+            X_train, y_train = X_train.values, y_train.values
+            X_val, y_val = X_val.values, y_val.values
+
         X_val = torch.from_numpy(X_val).float().to(self.device)
         y_val = torch.from_numpy(y_val).float().to(self.device)
         train_loader = make_dataloader(X_train, y_train, batch_size)
         
-        optimizer = optim.Adam(self.net.parameters(), lr = lr)    
-        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=max(patience-6, 2), factor=0.5, verbose=verbose)
-        criterian = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight))
-        early_stopping = EarlyStopping(patience=patience, verbose=verbose)
+        optimizer = optim.Adam(self.net.parameters(), lr = lr, weight_decay=weight_decay)    
+        if scheduler in ['OneCycleLR', 'both']:
+            lr_scheduler_1 = optim.lr_scheduler.OneCycleLR(optimizer, pct_start=0.1, div_factor=1e3, max_lr=1e-2, 
+                                                         epochs=epoch, steps_per_epoch=len(train_loader))
+        if scheduler in ['ReduceLROnPlateau', 'both']:
+            lr_scheduler_2 = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=max(patience-7, 2), 
+                                                                factor=0.5, verbose=verbose)
+#         criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(1.))
+        criterion = SmoothCrossEntropyLoss(smoothing=smoothing)
+        metric = lambda inputs, targets: F.binary_cross_entropy((torch.clamp(F.sigmoid(inputs), p_min, 1-p_min)), targets)
+        
+        early_stopping = EarlyStopping(patience=patience, verbose=False)
         
         n_features = X_train.shape[1]
         for e in range(epoch):
             counter = 0
             for data in train_loader:
-                counter += 1
                 X_batch = data[:,:n_features].float().to(self.device)
                 y_target = data[:,n_features:].float().to(self.device)
                 if X_batch.shape[0] <= 1:
                     continue
-
+                self.net.train()
                 optimizer.zero_grad()
                 
                 y_prob = self.net(X_batch)
-                loss = criterian(y_prob.view(-1,1), y_target.view(-1,1)) + self.net.regular_loss(L1, L2)
-                loss.backward()
+                train_loss = criterion(y_prob, y_target) + self.net.regular_loss(L1, L2)
+                train_metric = metric(y_prob, y_target)
+                train_loss.backward()
                 optimizer.step()
-    
-                if verbose:
-                    if counter % 40 ==0:
-                        print(f"Epoch [{e+1}, {counter}] : train loss {loss}") 
+                if scheduler in ['OneCycleLR', 'both']:
+                    lr_scheduler_1.step()
                         
             # validation loss
+            self.net.eval()
             y_prob = self.net(X_val)
-            valid_loss = criterian(y_prob.view(-1,1), y_val.view(-1,1)) + self.net.regular_loss(L1, L2)
+            valid_loss = criterion(y_prob, y_val) + self.net.regular_loss(L1, L2)
+            valid_metric = metric(y_prob, y_val)
             
-            early_stopping(valid_loss, self.net)
+            if verbose:
+                if (e+1) % 2 ==0:
+                    print("Epoch [{}/{}] : train loss {:5f}, train metric {:5f}, val loss {:5f}, val metric {:5f}".format(e+1, epoch, train_loss, train_metric, valid_loss, valid_metric)) 
+            
+            early_stopping(valid_metric, self.net)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
-            
-            lr_scheduler.step(valid_loss)
+                
+            if scheduler in ['ReduceLROnPlateau', 'both']:
+                lr_scheduler.step(valid_metric)
+                
         self.net.load_state_dict(torch.load('checkpoint.pt'))
+
     
     def predict(self, X, thresh = 0.5):
         prob = self.predict_prob(X)
@@ -149,4 +166,11 @@ class Model(object):
         
         output = F.sigmoid(self.net(X))
         return output.cpu().detach().numpy().astype('float64')
+    
+    def save_model(self, path):
+        torch.save(self.net.state_dict(), path)
+        
+    def load_model(self, path):
+        self.net.load_state_dict(torch.load(path))
+        
 

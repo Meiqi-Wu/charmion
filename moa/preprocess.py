@@ -4,6 +4,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.preprocessing import QuantileTransformer
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
+from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -80,6 +81,16 @@ def fe_stats(train, test):
         df['gc_skew'] = df[GENES + CELLS].skew(axis = 1)
     return train, test
 
+def fe_stats_all(data_all):
+    GENES = [col for col in data_all.columns if col.startswith('g-')]
+    CELLS = [col for col in data_all.columns if col.startswith('c-')]
+    for stats in tqdm(['sum', 'mean', 'std', 'kurt', 'skew']):
+        data_all['g_'+stats] = getattr(data_all[GENES], stats)(axis=1)
+        data_all['c_'+stats] = getattr(data_all[CELLS], stats)(axis=1)
+        data_all['gc_'+stats] = getattr(data_all[GENES+CELLS], stats)(axis=1)
+    return data_all
+
+
 def c_squared(train, test):
     CELLS = [col for col in train.columns if col.startswith('c-')]
     for df in [train, test]:
@@ -96,10 +107,10 @@ def fe_pca(train, test, n_components_g = 70, n_components_c = 10, SEED = 123):
         data = pd.concat([train_, test_], axis = 0)
         pca = PCA(n_components = n_components,  random_state = SEED)
         data = pca.fit_transform(data)
-        columns = [f'pca_{kind}{i + 1}' for i in range(n_components)]
+        columns = [f'pca_{kind}-{i + 1}' for i in range(n_components)]
         data = pd.DataFrame(data, columns = columns)
         train_ = data.iloc[:train.shape[0]]; train_.index = train.index
-        test_ = data.iloc[train.shape[0]:]; test_.index = test.index
+        test_ = data.iloc[train.shape[0]:];  test_.index = test.index
         train = pd.concat([train, train_], axis = 1)
         test = pd.concat([test, test_], axis = 1)
         return train, test
@@ -118,3 +129,11 @@ def variance_thresh(train, test, threshold=0.8, start_idx=2):
     train = pd.concat((train.iloc[:,:start_idx], train_transformed), axis=1)
     test = pd.concat((test.iloc[:,:start_idx], test_transformed), axis=1)
     return train, test
+
+
+def variance_thresh_all(data_all, thresh=0.7):
+    cols_numeric = data_all.columns[2:]
+    mask = (data_all[cols_numeric].var() >= thresh).values
+    tmp = data_all[cols_numeric].loc[:,mask]
+    data_all = pd.concat([data_all.iloc[:,:2], tmp], axis=1)
+    return data_all
