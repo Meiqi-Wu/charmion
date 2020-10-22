@@ -45,7 +45,7 @@ class DenseNet(nn.Module):
         if isinstance(dropout, list):
             self.dropout = dropout
         else:
-            self.dropout = [0] + [dropout] * len(hidden_size)
+            self.dropout = [dropout] * (1+len(hidden_size))
             
         self.layers = nn.ModuleList()
         layer_size = [input_size] + hidden_size + [output_size]

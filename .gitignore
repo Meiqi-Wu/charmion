@@ -1,6 +1,8 @@
 /DATA
 /TrainedModels
 
+checkpoint.pt
+
 .vscode/
 
 # Byte-compiled / optimized / DLL files
