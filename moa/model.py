@@ -17,7 +17,7 @@ class DenseBlock(nn.Module):
     '''
     def __init__(self, input_size, output_size, dropout_ratio, activate, batch=True):
         super(DenseBlock, self).__init__()
-        self.linear = nn.Linear(input_size, output_size)
+        self.linear = nn.utils.weight_norm(nn.Linear(input_size, output_size))
         self.activate = activate
         if batch:
             self.batchnorm = nn.BatchNorm1d(output_size)
@@ -29,10 +29,13 @@ class DenseBlock(nn.Module):
         
     def forward(self, x):
         x = self.linear(x)
-        if self.batchnorm:
-            x = self.batchnorm(x)
+        
         if self.activate:
             x = self.activate(x)
+            
+        if self.batchnorm:
+            x = self.batchnorm(x)
+        
         x = self.dropout(x)
         return x
     
@@ -52,6 +55,7 @@ class DenseNet(nn.Module):
         
         self.layers.append(nn.BatchNorm1d(input_size))
         self.layers.append(nn.Dropout(self.dropout[0]))
+        
         for i in range(len(layer_size)-2):
             self.layers.append(DenseBlock(layer_size[i], layer_size[i+1], self.dropout[i+1], F.relu))
         self.layers.append(DenseBlock(layer_size[-2], layer_size[-1], 0, None, False))
